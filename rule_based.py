@@ -22,7 +22,6 @@ from ud2ude_aryehgigi import converter, conllu_wrapper as cw
 import spacy
 from spacy.tokens import Doc
 
-g_rel_counts = Counter()
 spike_relations = ["org:country_of_headquarters", "per:cause_of_death", "per:country_of_birth", "per:spouse", "org:founded", "per:chlidren", "per:country_of_death", "per:stateorprovince_of_death", "org:founded_by", "per:cities_of_residence", "per:origin", "org:alternate_names", "org:number_of_employees_members", "per:city_of_death", "per:religion", "org:city_of_headquarters", "per:age", "per:countries_of_residence", "per:schools_attended"]
 
 
@@ -106,6 +105,12 @@ def fix_label(label_):
     return fixed_label
 
 
+def fix_labels(od):
+    d = od["documents"]['']['sentences'][0]["graphs"]["universal-enhanced"]["edges"]
+    for i in range(len(d)):
+        d[i]['relation'] = fix_label(d[i]['relation'])
+
+
 class SampleAryehAnnotator(object):
     @staticmethod
     def annotate_sample(sample_: dict, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int,
@@ -139,6 +144,7 @@ class SampleAryehAnnotator(object):
                 dg.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=fix_label(label))
         
         odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, tags, lemmas, entities, chunks, odin_id), False, True)
+        fix_labels(odin)
         ann_sample = AnnotatedSample(
             " ".join(tokens), " ".join(tokens), sample_['relation'], sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
             (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), None, g, dg)
@@ -156,15 +162,12 @@ def store_pattern_stats(pattern_dict, name):
 
 
 def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int, remove_eud_info: bool, remove_extra_info: bool):
-    global g_rel_counts
-    
+    c = 0
     ann_samples = defaultdict(list)
     for i, sample in enumerate(data):
         if (i + 1) % 6800 == 0:
             print("finished %d/%d samples" % (i, len(data)))
         
-        g_rel_counts[sample['relation']] += 1
-
         # store only relations that are subscribed under spike/server/resources/files_db/relations
         #   and notice to store the correct information (cammel case, correct name/label/id etc)
         if sample['relation'] not in spike_relations:
@@ -172,17 +175,21 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
         
         ann_sample, _ = SampleAryehAnnotator.annotate_sample(sample, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
         ann_samples[ann_sample.relation].append(ann_sample)
+        c += 1
     
     pattern_dict_no_lemma = dict()
     pattern_dict_with_lemma = dict()
     pattern_generator_no_lemma = PatternGenerator([], LabelEdgeSelector(), [WordNodeSelector()])
     pattern_generator_with_lemma = PatternGenerator([], LabelEdgeSelector(), [LemmaNodeSelector()])
+    total_d = 0
+    total_d2 = 0
     for rel, ann_samples_per_rel in ann_samples.items():
         pattern_dict_no_lemma[rel], d = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_no_lemma)
-        print("%d patterns can’t be created for no-lemma" % sum(d.values()))
+        total_d += sum(d.values())
         pattern_dict_with_lemma[rel], d2 = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_with_lemma)
-        print("%d patterns can’t be created for with-lemma" % sum(d2.values()))
-
+        total_d2 += sum(d2.values())
+    print("%d/%d patterns can’t be created for no-lemma" % (total_d, c))
+    print("%d/%d patterns can’t be created for with-lemma" % (total_d2, c))
     return pattern_dict_no_lemma, pattern_dict_with_lemma
 
 
@@ -232,7 +239,7 @@ def get_percentage_strategy(pattern_dicts, percentage):
     
     for rel, pattern_dict in pattern_dicts.items():
         so_far = set()
-        len_rel = g_rel_counts[rel]  # sum(len(v) for v in pattern_dict.values())
+        len_rel = len({vv for v in pattern_dict.values() for vv in v})
         for l, k, v in sorted([(len(v), k, v) for k, v in pattern_dict.items()], reverse=True):
             percentage_strategy[rel][k] = v
             so_far.union(v)
@@ -253,23 +260,22 @@ def get_threshold_strategy(pattern_dicts, threshold):
     return threshold_strategy
 
 
-get_self_strategy = lambda x: x[0]
+get_self_strategy = lambda x, y: x
 strat_funcs = [get_self_strategy, get_threshold_strategy, get_percentage_strategy]
 
 
-def main_annotate(strategies, name):
-    print("started loading tacred %s" % name)
-    with open("dataset/tacred/data/json/{}.json".format(name)) as f:
+def main_annotate(strategies, dataset):
+    print("started loading tacred %s" % dataset)
+    with open("dataset/tacred/data/json/{}.json".format(dataset)) as f:
         data = json.load(f)
-    print("finished loading tacred %s" % name)
+    print("finished loading tacred %s" % dataset)
     
-    # annotate dev
     for i, (strat_name, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info) in enumerate(strategies):
         start = time.time()
         print("Started annotating %s/l" % strat_name)
         for j, sample in enumerate(data):
-            filename = "resources/datasets/tacred-{}-labeled-aryeh-{}/ann/sent_{:0>5}.json".format(name, strat_name, j)
-            filename_l = "resources/datasets/tacred-{}-labeled-aryeh-{}l/ann/sent_{:0>5}.json".format(name, strat_name, j)
+            filename = "resources/datasets/tacred-{}-labeled-aryeh-{}/ann/sent_{:0>5}.json".format(dataset, strat_name, j)
+            filename_l = "resources/datasets/tacred-{}-labeled-aryeh-{}l/ann/sent_{:0>5}.json".format(dataset, strat_name, j)
             try:
                 os.makedirs(os.path.dirname(filename))
                 os.makedirs(os.path.dirname(filename_l))
@@ -285,20 +291,8 @@ def main_annotate(strategies, name):
         print("finished annotating %s/l, time:%.3f" % (strat_name, time.time() - start))
 
 
-def main_eval_test(name, use_lemma, in_port, sub_strategy):
-    name = name + ('l' if use_lemma else '')
-    ff = open("logs/log_scores_test_%s_sub%d.json" % (name, strat_funcs.index(sub_strategy)), "w")
-    print("started calculating test-set scores for strategy %s" % name)
-    start = time.time()
-    with open("pattern_dicts/pattern_dict_%s.pkl" % name, "rb") as f:
-        pattern_dict = pickle.load(f)
-    chosen_strategy = sub_strategy(pattern_dict)
-    (p, r, micro_f, macro_f), _ = eval_patterns_on_dataset(chosen_strategy, "tacred-test-labeled-aryeh-{}".format(name), in_port, ff)
-    print("Final scores %s (time:%.3f): prec: %.3f, recall: %.3f, micro_f1: %.3f, macro_f1: %.3f" % (name, time.time() - start, p, r, micro_f, macro_f))
-
-
-def main_eval_dev(strats, use_lemma, in_port, extra_sub_strat_info=None):
-    # annotate train and generate patterns
+def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos):
+    evals = dict()
     for i, (name, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info) in enumerate(strats):
         name = name + ('l' if use_lemma else '')
         with open("pattern_dicts/pattern_dict_%s.pkl" % name, "rb") as f:
@@ -306,17 +300,20 @@ def main_eval_dev(strats, use_lemma, in_port, extra_sub_strat_info=None):
             pattern_dict = pickle.load(f)
             print("finished loading patterns for strategy %s" % name)
         
-        print("started calculating dev-set scores for strategy %s" % name)
-        # split to sub strategies and test each against dev set.
-        # store scores separately for baseline:'n'/baseline:'e'/new-awesome-SOTA:'a'
+        print("started calculating %s-set scores for strategy %s" % (data, name))
         start = time.time()
-        for sub_strategy in [get_self_strategy, get_threshold_strategy, get_percentage_strategy]:
-            ff = open("logs/log_scores_dev_%s_sub%d.json" % (name, strat_funcs.index(sub_strategy)), "w")
-            cur_pattern_dict = sub_strategy(pattern_dict, extra_sub_strat_info)
-            print("working on: tacred-dev-labeled-aryeh-{}".format(name))
-            print(eval_patterns_on_dataset(cur_pattern_dict, "tacred-dev-labeled-aryeh-{}".format(name), in_port, ff)[0])
+        for sub_strat_idx, sub_info in zip(sub_strategies, sub_infos):
+            sub_strat_idx = int(sub_strat_idx)
+            sub_info = float(sub_info)
+            print("started calculating {}-set scores for strategy {}, sub{}_{}".format(data, name, sub_strat_idx, sub_info))
+            ff = open("logs/log_scores_{}_{}_sub{}_{}.json".format(data, name, sub_strat_idx, sub_info), "w")
+            cur_pattern_dict = strat_funcs[sub_strat_idx](pattern_dict, sub_info)
+            evals[(name, sub_strat_idx, sub_info)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff)[0]
+            print("{} {} {}".format(name, sub_strat_idx, sub_info))
+            print(evals[(name, sub_strat_idx, sub_info)])
             ff.close()
-        print("finished calculating dev-set scores for strategy %s, strategy-index: %d, time: %.3f" % (name, i, time.time() - start))
+        print("finished calculating %s-set scores for strategy %s, strategy-index: %d, time: %.3f" % (data, name, i, time.time() - start))
+    print(str(evals))
 
 
 def main_generate(strats):
@@ -343,23 +340,24 @@ if __name__ == "__main__":
     strategies = [
         ("n", False, False, False, 1, False, False),  # no enhancing
         ("e", True, True, False, 1, False, False),  # eUD
-        ("a", True, True, True, 1, True, True),  # Aryeh enhancement + eUD
-        ("a2", False, False, True, 1, True, True),  # Aryeh enhancement + no eUD
-        ("ar", True, True, True, 2, True, True),  # Aryeh enhancement + eUD + 2 convs
-        ("a2r", False, False, True, 2, True, True),  # Aryeh enhancement + no eUD + 2 convs
         ("e2", True, True, False, 1, True, True),  # eUD + no-extra-info
+        ("a", True, True, True, 1, True, True),  # Aryeh enhancement + eUD
+        ("ar", True, True, True, 2, True, True),  # Aryeh enhancement + eUD + 2 convs
+        ("a2", False, False, True, 1, True, True),  # Aryeh enhancement + no eUD
+        ("a2r", False, False, True, 2, True, True),  # Aryeh enhancement + no eUD + 2 convs
+        ("a3", True, True, True, 2, False, True),
         ("a3r", True, True, True, 2, False, True)]
 
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument('--action', type=str, default='eval')
-    arg_parser.add_argument('--data', type=str, default='dev')
-    arg_parser.add_argument('--strat_start', type=int, default=-1)
-    arg_parser.add_argument('--strat_end', type=int, default=-1)
-    arg_parser.add_argument('--port', type=int, default=9000)
-    arg_parser.add_argument('--extra_sub_strat_info', type=int, default=None)
-    arg_parser.add_argument('--sub_idx', type=int, default=0)
-    arg_parser.add_argument('--use_lemma', type=bool, default=True)
-
+    arg_parser.add_argument('-a', '--action', type=str, default='eval')
+    arg_parser.add_argument('-d', '--data', type=str, default='dev')
+    arg_parser.add_argument('-x', '--strat_start', type=int, default=-1)
+    arg_parser.add_argument('-y', '--strat_end', type=int, default=-1)
+    arg_parser.add_argument('-p', '--port', type=int, default=9000)
+    arg_parser.add_argument('-s', '--sub_strats', action='append', default=None)
+    arg_parser.add_argument('-i', '--sub_infos', action='append', default=None)
+    arg_parser.add_argument('-l', '--use_lemma', type=int, default=1)
+    
     args = arg_parser.parse_args()
     
     if args.strat_start >= 0:
@@ -367,13 +365,10 @@ if __name__ == "__main__":
             strategies = strategies[args.strat_start:args.strat_end]
         else:
             strategies = strategies[args.strat_start:args.strat_start + 1]
-
+    
     if args.action == 'annotate':
-        main_annotate(strategies, sys.argv[2])
+        main_annotate(strategies, args.data)
     elif args.action == 'eval':
-        if args.data == 'dev':
-            main_eval_dev(strategies, args.use_lemma, args.port, args.extra_sub_strat_info)
-        elif args.data == 'test':
-            main_eval_test(strategies, args.use_lemma, args.port, strat_funcs[args.sub_idx])
+        main_eval(strategies, args.data, args.use_lemma, args.port, args.sub_strats, args.sub_infos)
     elif args.action == 'generate':
         main_generate(strategies)
