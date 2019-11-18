@@ -12,7 +12,7 @@ from collections import defaultdict, Counter
 from spike.datamodel.dataset import FileBasedDataSet
 from spike.rest.definitions import Relation
 from spike.pattern_generation.gen_pattern import PatternGenerator
-from spike.pattern_generation.pattern_selectors import LabelEdgeSelector, WordNodeSelector, LemmaNodeSelector
+from spike.pattern_generation.pattern_selectors import LabelEdgeSelector, WordNodeSelector, LemmaNodeSelector, TriggerVarNodeSelector
 from spike.pattern_generation.utils import GenerationFromAnnotatedSamples
 from spike.pattern_generation.compilation import spike_compiler
 from spike.pattern_generation.sample_types import AnnotatedSample
@@ -179,11 +179,17 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
     
     pattern_dict_no_lemma = dict()
     pattern_dict_with_lemma = dict()
-    pattern_generator_no_lemma = PatternGenerator([], LabelEdgeSelector(), [WordNodeSelector()])
-    pattern_generator_with_lemma = PatternGenerator([], LabelEdgeSelector(), [LemmaNodeSelector()])
     total_d = 0
     total_d2 = 0
     for rel, ann_samples_per_rel in ann_samples.items():
+        with open("triggers/" + rel + ".xml", "r") as f:
+            triggers = [l.strip() for l in f.readlines()]
+        if triggers:
+            pattern_generator_no_lemma = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [WordNodeSelector()])
+            pattern_generator_with_lemma = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [LemmaNodeSelector()])
+        else:
+            pattern_generator_no_lemma = PatternGenerator([], LabelEdgeSelector(), [WordNodeSelector()])
+            pattern_generator_with_lemma = PatternGenerator([], LabelEdgeSelector(), [LemmaNodeSelector()])
         pattern_dict_no_lemma[rel], d = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_no_lemma)
         total_d += sum(d.values())
         pattern_dict_with_lemma[rel], d2 = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_with_lemma)
