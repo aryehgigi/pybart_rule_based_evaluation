@@ -111,6 +111,20 @@ def fix_labels(od):
         d[i]['relation'] = fix_label(d[i]['relation'])
 
 
+def search_triggers(sample_, tokens):
+    trigger_toks = []
+    for trigger in get_triggers(sample_['relation']):
+        for i, token in enumerate(tokens):
+            identical = True
+            for j, trigger_part in enumerate(trigger.split()):
+                if trigger_part != tokens[i + j]:
+                    identical = False
+                    break
+            if identical:
+                trigger_toks.append((i, i + len(trigger.split())))
+    return trigger_toks if trigger_toks else [None]
+
+
 class SampleAryehAnnotator(object):
     @staticmethod
     def annotate_sample(sample_: dict, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int,
@@ -146,25 +160,13 @@ class SampleAryehAnnotator(object):
         odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, tags, lemmas, entities, chunks, odin_id), False, True)
         fix_labels(odin)
 
-        found_trigger = False
         ann_samples = []
-        for trigger in get_triggers(sample_['relation']):
-            for i, token in enumerate(tokens):
-                identical = True
-                for j, trigger_part in enumerate(trigger.split()):
-                    if trigger_part != tokens[i + j]:
-                        identical = False
-                        break
-                if identical:
-                    ann_samples.append(AnnotatedSample(
-                        " ".join(tokens), " ".join(tokens), sample_['relation'], sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
-                        (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), (i, i + len(trigger.split())), g, dg))
-                    found_trigger = True
-        if not found_trigger:
+        trigger_toks = search_triggers(sample_, tokens)
+        for trigger_tok in trigger_toks:
             ann_samples.append(AnnotatedSample(
                 " ".join(tokens), " ".join(tokens), sample_['relation'], sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
-                (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), None, g, dg))
-
+                (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), trigger_tok, g, dg))
+        
         return ann_samples, odin
 
 
