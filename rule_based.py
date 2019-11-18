@@ -114,7 +114,7 @@ def fix_labels(od):
 class SampleAryehAnnotator(object):
     @staticmethod
     def annotate_sample(sample_: dict, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int,
-                        remove_eud_info: bool, remove_extra_info: bool, odin_id: int = -1) -> Tuple[AnnotatedSample, dict]:
+                        remove_eud_info: bool, remove_extra_info: bool, odin_id: int = -1) -> Tuple[List[AnnotatedSample], dict]:
         doc = Doc(nlp.vocab, words=sample_['token'])
         _ = tagger(doc)
         _ = sbd_preventer(doc)
@@ -145,11 +145,27 @@ class SampleAryehAnnotator(object):
         
         odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, tags, lemmas, entities, chunks, odin_id), False, True)
         fix_labels(odin)
-        ann_sample = AnnotatedSample(
-            " ".join(tokens), " ".join(tokens), sample_['relation'], sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
-            (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), None, g, dg)
-        
-        return ann_sample, odin
+
+        found_trigger = False
+        ann_samples = []
+        for trigger in get_triggers(sample_['relation']):
+            for i, token in enumerate(tokens):
+                identical = True
+                for j, trigger_part in enumerate(trigger.split()):
+                    if trigger_part != tokens[i + j]:
+                        identical = False
+                        break
+                if identical:
+                    ann_samples.append(AnnotatedSample(
+                        " ".join(tokens), " ".join(tokens), sample_['relation'], sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
+                        (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), (i, i + len(trigger.split())), g, dg))
+                    found_trigger = True
+        if not found_trigger:
+            ann_samples.append(AnnotatedSample(
+                " ".join(tokens), " ".join(tokens), sample_['relation'], sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
+                (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), None, g, dg))
+
+        return ann_samples, odin
 
 
 def store_pattern_stats(pattern_dict, name):
@@ -159,6 +175,15 @@ def store_pattern_stats(pattern_dict, name):
             pattern_dict_x = get_percentage_strategy(pattern_dict, x * 0.1)
             lens.append(len(set(v3 for k,v in pattern_dict_x.items() for k2,v2 in v.items() for v3 in v2)))
         json.dump(lens, f)
+
+
+def get_triggers(rel):
+    try:
+        with open("triggers/" + rel + ".xml", "r") as f:
+            triggers = [l.strip() for l in f.readlines()]
+        return triggers
+    except FileNotFoundError:
+        return []
 
 
 def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int, remove_eud_info: bool, remove_extra_info: bool):
@@ -173,8 +198,8 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
         if sample['relation'] not in spike_relations:
             continue
         
-        ann_sample, _ = SampleAryehAnnotator.annotate_sample(sample, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
-        ann_samples[ann_sample.relation].append(ann_sample)
+        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
+        _ = [ann_samples[ann_sample.relation].append(ann_sample) for ann_sample in new_ann_samples]
         c += 1
     
     pattern_dict_no_lemma = dict()
@@ -182,8 +207,7 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
     total_d = 0
     total_d2 = 0
     for rel, ann_samples_per_rel in ann_samples.items():
-        with open("triggers/" + rel + ".xml", "r") as f:
-            triggers = [l.strip() for l in f.readlines()]
+        triggers = get_triggers(rel)
         if triggers:
             pattern_generator_no_lemma = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [WordNodeSelector()])
             pattern_generator_with_lemma = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [LemmaNodeSelector()])
