@@ -1,28 +1,28 @@
 from typing import Tuple, List
 import argparse
 import errno
-import sys
 import os
 import networkx as nx
 import json
 import pickle
 import time
-from collections import defaultdict, Counter
 
-from spike.datamodel.dataset import FileBasedDataSet
+from collections import defaultdict
 from spike.rest.definitions import Relation
 from spike.pattern_generation.gen_pattern import PatternGenerator
 from spike.pattern_generation.pattern_selectors import LabelEdgeSelector, WordNodeSelector, LemmaNodeSelector, TriggerVarNodeSelector
 from spike.pattern_generation.utils import GenerationFromAnnotatedSamples
 from spike.pattern_generation.compilation import spike_compiler
 from spike.pattern_generation.sample_types import AnnotatedSample
+from spike.pattern_generation.compilation.odinson_compiler import compile_to_odinson_rule
+from spike.datamodel.dataset import FileBasedDataSet
 from spike.evaluation import eval
 
 from ud2ude_aryehgigi import converter, conllu_wrapper as cw
 import spacy
 from spacy.tokens import Doc
 
-spike_relations = ["org:country_of_headquarters", "per:cause_of_death", "per:country_of_birth", "per:spouse", "org:founded", "per:chlidren", "per:country_of_death", "per:stateorprovince_of_death", "org:founded_by", "per:cities_of_residence", "per:origin", "org:alternate_names", "org:number_of_employees_members", "per:city_of_death", "per:religion", "org:city_of_headquarters", "per:age", "per:countries_of_residence", "per:schools_attended"]
+spike_relations = ["org:country_of_headquarters", "per:cause_of_death", "per:country_of_birth", "per:spouse", "org:founded", "per:children", "per:country_of_death", "per:stateorprovince_of_death", "org:founded_by", "per:cities_of_residence", "per:origin", "org:alternate_names", "org:number_of_employees_members", "per:city_of_death", "per:religion", "org:city_of_headquarters", "per:age", "per:countries_of_residence", "per:schools_attended"]
 
 
 def prevent_sentence_boundary_detection(doc):
@@ -39,7 +39,7 @@ sbd_preventer = nlp.get_pipe('prevent-sbd')
 parser = nlp.get_pipe('parser')
 
 
-def get_odin_json(tokens, sample_, tags, lemmas, entities, chunks, odin_id):
+def get_odin_json(tokens, sample_, rel, tags, lemmas, entities, chunks, odin_id):
     start_offsets = []
     end_offsets = []
     offset = 0
@@ -54,7 +54,7 @@ def get_odin_json(tokens, sample_, tags, lemmas, entities, chunks, odin_id):
     
     gold = {"id": "gold_relation_{}".format(odin_id), "text": " ".join(tokens_for_text),
             'tokenInterval': {'start': start, 'end': end},
-            "keep": True, "foundBy": "tacred_gold", "type": "RelationMention", "labels": [sample_["relation"]],
+            "keep": True, "foundBy": "tacred_gold", "type": "RelationMention", "labels": [rel],
             "sentence": 0, "document": "document", "arguments":
                 {"subject": [{"type": "TextBoundMention", "sentence": 0, "labels": [sample_["subj_type"]],
                               "tokenInterval": {"start": sample_["subj_start"], "end": sample_["subj_end"] + 1},
@@ -93,27 +93,9 @@ def fix_entities(sample, pad):
     return entities
 
 
-def fix_label(label_):
-    fixed_label = label_
-    if "nmod:vs." == fixed_label:
-        fixed_label = fixed_label.replace("nmod:vs.", "nmod:vs")
-    if "nmod:@" == fixed_label:
-        fixed_label = fixed_label.replace("nmod:@", "nmod:at_sign")
-    if "nmod:'s" == label_:
-        fixed_label = fixed_label.replace("nmod:'s", "nmod:poss")
-    
-    return fixed_label
-
-
-def fix_labels(od):
-    d = od["documents"]['']['sentences'][0]["graphs"]["universal-enhanced"]["edges"]
-    for i in range(len(d)):
-        d[i]['relation'] = fix_label(d[i]['relation'])
-
-
-def search_triggers(sample_, tokens):
+def search_triggers(sample_, rel, tokens):
     trigger_toks = []
-    for trigger in get_triggers(sample_['relation']):
+    for trigger in get_triggers(rel):
         for i, token in enumerate(tokens):
             identical = True
             for j, trigger_part in enumerate(trigger.split()):
@@ -127,7 +109,7 @@ def search_triggers(sample_, tokens):
 
 class SampleAryehAnnotator(object):
     @staticmethod
-    def annotate_sample(sample_: dict, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int,
+    def annotate_sample(sample_: dict, rel: str, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int,
                         remove_eud_info: bool, remove_extra_info: bool, odin_id: int = -1) -> Tuple[List[AnnotatedSample], dict]:
         doc = Doc(nlp.vocab, words=sample_['token'])
         _ = tagger(doc)
@@ -154,17 +136,16 @@ class SampleAryehAnnotator(object):
                 if parent.get_conllu_field("id") == 0:
                     continue
                 
-                g.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=fix_label(label))
-                dg.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=fix_label(label))
+                g.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=label)
+                dg.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=label)
         
-        odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, tags, lemmas, entities, chunks, odin_id), False, True)
-        fix_labels(odin)
-
+        odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, rel, tags, lemmas, entities, chunks, odin_id), False, True)
+        
         ann_samples = []
-        trigger_toks = search_triggers(sample_, tokens)
+        trigger_toks = search_triggers(sample_, rel, tokens)
         for trigger_tok in trigger_toks:
             ann_samples.append(AnnotatedSample(
-                " ".join(tokens), " ".join(tokens), sample_['relation'], sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
+                " ".join(tokens), " ".join(tokens), rel, sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
                 (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), trigger_tok, g, dg))
         
         return ann_samples, odin
@@ -188,6 +169,19 @@ def get_triggers(rel):
         return []
 
 
+def filter_misparsed_patterns(pattern_dict, str_rel, d):
+    new_pattern_dict = dict()
+    rel = Relation.fetch(id=str_rel)
+    for p, samples in pattern_dict.items():
+        try:
+            _ = compile_to_odinson_rule(spike_compiler.from_text("\n".join([p]), rel)[0][0])
+            new_pattern_dict[p] = samples
+        except:
+            d.append((str_rel, len(samples), p))
+            continue
+    return new_pattern_dict
+
+
 def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int, remove_eud_info: bool, remove_extra_info: bool):
     c = 0
     ann_samples = defaultdict(list)
@@ -197,31 +191,29 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
         
         # store only relations that are subscribed under spike/server/resources/files_db/relations
         #   and notice to store the correct information (cammel case, correct name/label/id etc)
-        if sample['relation'] not in spike_relations:
+        rel = sample['relation'].replace('/', '_')
+        if rel not in spike_relations:
             continue
         
-        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
+        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, rel, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
         _ = [ann_samples[ann_sample.relation].append(ann_sample) for ann_sample in new_ann_samples]
         c += 1
     
     pattern_dict_no_lemma = dict()
     pattern_dict_with_lemma = dict()
-    total_d = 0
-    total_d2 = 0
-    for rel, ann_samples_per_rel in ann_samples.items():
-        triggers = get_triggers(rel)
-        if triggers:
-            pattern_generator_no_lemma = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [WordNodeSelector()])
-            pattern_generator_with_lemma = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [LemmaNodeSelector()])
-        else:
-            pattern_generator_no_lemma = PatternGenerator([], LabelEdgeSelector(), [WordNodeSelector()])
-            pattern_generator_with_lemma = PatternGenerator([], LabelEdgeSelector(), [LemmaNodeSelector()])
-        pattern_dict_no_lemma[rel], d = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_no_lemma)
-        total_d += sum(d.values())
-        pattern_dict_with_lemma[rel], d2 = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_with_lemma)
-        total_d2 += sum(d2.values())
-    print("%d/%d patterns can’t be created for no-lemma" % (total_d, c))
-    print("%d/%d patterns can’t be created for with-lemma" % (total_d2, c))
+    for node_selector, pattern_dict in [(WordNodeSelector, pattern_dict_no_lemma), (LemmaNodeSelector, pattern_dict_with_lemma)]:
+        total_d = 0
+        errs = []
+        for rel, ann_samples_per_rel in ann_samples.items():
+            triggers = get_triggers(rel)
+            pattern_generator_with_trigger = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [])
+            pattern_generator_no_trigger = PatternGenerator([], LabelEdgeSelector(), [node_selector()])
+            pattern_dict_pre_filter, d = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_with_trigger, pattern_generator_no_trigger)
+            pattern_dict[rel] = filter_misparsed_patterns(pattern_dict_pre_filter, rel, errs)
+            total_d += sum(d.values())
+        print("%d/%d patterns can’t be created for %s" % (total_d, sum([len(a) for a in ann_samples.values()]), str(node_selector)))
+        for err in errs:
+            print(err)
     return pattern_dict_no_lemma, pattern_dict_with_lemma
 
 
@@ -238,6 +230,7 @@ def eval_patterns_on_dataset(rel_to_pattern_dict, data_name, in_port, f):
     stats_list = dict()
     macro_f = 0
     i = 0
+    errs = 0
     for str_rel, patterns in rel_to_pattern_dict.items():
         if str_rel not in spike_relations:
             continue
@@ -246,9 +239,10 @@ def eval_patterns_on_dataset(rel_to_pattern_dict, data_name, in_port, f):
             e = eval.evaluate_relation(FileBasedDataSet(data_name), spike_compiler.from_text("\n".join(patterns.keys()), rel)[0], rel, get_link(in_port), get_link(in_port + 90))
         except ConnectionError:
             import pdb;pdb.set_trace()
-        except:
-            import pdb;pdb.set_trace()
-        
+        except Exception as e:
+            errs += 1
+            continue
+
         stats = e.get_global_stats()
         tot_retrieved_and_relevant += stats['retrievedAndRelevant']
         tot_retrieved += stats['retrieved']
@@ -257,6 +251,7 @@ def eval_patterns_on_dataset(rel_to_pattern_dict, data_name, in_port, f):
         stats_list[str_rel] = stats
         i += 1
         print("finished rel: %s %d/%d" % (str_rel, i, len(spike_relations)))
+    print(errs)
     
     prec = (tot_retrieved_and_relevant / tot_retrieved) if tot_retrieved > 0 else 0
     recall = (tot_retrieved_and_relevant / tot_relevant) if tot_relevant > 0 else 0
@@ -292,8 +287,19 @@ def get_threshold_strategy(pattern_dicts, threshold):
     return threshold_strategy
 
 
+def get_no_immediate_path_strategy(pattern_dicts, bla):
+    no_immediate_path_strategy = defaultdict(defaultdict)
+    
+    for rel, pattern_dict in pattern_dicts.items():
+        for k, v in pattern_dict.items():
+            if ("lemma=" in k) or ("word=" in k):
+                no_immediate_path_strategy[rel][k] = v
+    
+    return no_immediate_path_strategy
+
+
 get_self_strategy = lambda x, y: x
-strat_funcs = [get_self_strategy, get_threshold_strategy, get_percentage_strategy]
+strat_funcs = [get_self_strategy, get_threshold_strategy, get_percentage_strategy, get_no_immediate_path_strategy]
 
 
 def main_annotate(strategies, dataset):
@@ -315,7 +321,7 @@ def main_annotate(strategies, dataset):
                 if exc.errno != errno.EEXIST:
                     raise
             _, odin_json = SampleAryehAnnotator.annotate_sample(
-                sample, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, odin_id=j)
+                sample, sample['relation'].replace('/', '_'), enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, odin_id=j)
             with open(filename, 'w') as f:
                 json.dump(odin_json['documents'][''], f)
             with open(filename_l, 'w') as f:
