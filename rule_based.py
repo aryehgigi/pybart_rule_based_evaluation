@@ -93,17 +93,15 @@ def fix_entities(sample, pad):
     return entities
 
 
-def search_triggers(sample_, rel, tokens):
+def search_triggers(subj_start, subj_end, obj_start, obj_end, rel, tokens):
     trigger_toks = []
     for trigger in get_triggers(rel):
-        for i, token in enumerate(tokens):
-            identical = True
-            for j, trigger_part in enumerate(trigger.split()):
-                if trigger_part != tokens[i + j]:
-                    identical = False
-                    break
-            if identical:
-                trigger_toks.append((i, i + len(trigger.split())))
+        for trigger_start, token in enumerate(tokens):
+            trigger_end = trigger_start + len(trigger.split())
+            if (trigger.split() == tokens[trigger_start : trigger_end]) and \
+               (trigger_end <= subj_start or trigger_start >= subj_end) and \
+               (trigger_end <= obj_start or trigger_start >= obj_end):
+                   trigger_toks.append((trigger_start, trigger_end))
     return trigger_toks if trigger_toks else [None]
 
 
@@ -142,7 +140,7 @@ class SampleAryehAnnotator(object):
         odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, rel, tags, lemmas, entities, chunks, odin_id), False, True)
         
         ann_samples = []
-        trigger_toks = search_triggers(sample_, rel, tokens)
+        trigger_toks = search_triggers(sample_['subj_start'], sample_['subj_end'] + 1, sample_['obj_start'], sample_['obj_end'] + 1, rel, tokens)
         for trigger_tok in trigger_toks:
             ann_samples.append(AnnotatedSample(
                 " ".join(tokens), " ".join(tokens), rel, sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
