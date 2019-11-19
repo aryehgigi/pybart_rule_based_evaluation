@@ -328,27 +328,26 @@ def main_annotate(strategies, dataset):
 
 
 def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_triggers):
+    trig_str = "" if use_triggers else "_no_trig"
     evals = dict()
     for i, (name, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info) in enumerate(strats):
         name = name + ('l' if use_lemma else '')
-        with open("pattern_dicts/pattern_dict_%s%s.pkl" % (name, "" if use_triggers else "_no_trig"), "rb") as f:
+        with open("pattern_dicts/pattern_dict_%s%s.pkl" % (name, trig_str), "rb") as f:
             print("started loading patterns for strategy %s" % name)
             pattern_dict = pickle.load(f)
             print("finished loading patterns for strategy %s" % name)
         
-        print("started calculating %s-set scores for strategy %s" % (data, name))
         start = time.time()
         for sub_strat_idx, sub_info in zip(sub_strategies, sub_infos):
             sub_strat_idx = int(sub_strat_idx)
             sub_info = float(sub_info)
-            print("started calculating {}-set scores for strategy {}, sub{}_{}".format(data, name, sub_strat_idx, sub_info))
-            ff = open("logs/log_scores_{}_{}_sub{}_{}.json".format(data, name, sub_strat_idx, sub_info), "w")
+            print("started calculating {}-set scores for strategy {}, sub{}_{}{}".format(data, name, sub_strat_idx, sub_info, trig_str))
+            ff = open("logs/log_scores_{}_{}_sub{}_{}{}.json".format(data, name, sub_strat_idx, sub_info, trig_str), "w")
             cur_pattern_dict = strat_funcs[sub_strat_idx](pattern_dict, sub_info)
-            evals[(name, sub_strat_idx, sub_info)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff)[0]
-            print("{} {} {}".format(name, sub_strat_idx, sub_info))
-            print(evals[(name, sub_strat_idx, sub_info)])
+            evals[(name, data, sub_strat_idx, sub_info, trig_str)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff)[0]
+            print("finished calculating %s-set scores for strategy %s, sub%d_%f%s time: %.3f" % (data, name, sub_strat_idx, sub_info, trig_str, time.time() - start))
+            print("\tscores: " + str(evals[(name, data, sub_strat_idx, sub_info, trig_str)]))
             ff.close()
-        print("finished calculating %s-set scores for strategy %s, strategy-index: %d, time: %.3f" % (data, name, i, time.time() - start))
     print(str(evals))
 
 
