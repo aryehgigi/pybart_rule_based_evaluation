@@ -108,7 +108,7 @@ def search_triggers(subj_start, subj_end, obj_start, obj_end, rel, tokens):
 class SampleAryehAnnotator(object):
     @staticmethod
     def annotate_sample(sample_: dict, rel: str, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int,
-                        remove_eud_info: bool, remove_extra_info: bool, odin_id: int = -1) -> Tuple[List[AnnotatedSample], dict]:
+                        remove_eud_info: bool, remove_extra_info: bool, odin_id: int = -1, use_triggers: bool = True) -> Tuple[List[AnnotatedSample], dict]:
         doc = Doc(nlp.vocab, words=sample_['token'])
         _ = tagger(doc)
         _ = sbd_preventer(doc)
@@ -140,7 +140,7 @@ class SampleAryehAnnotator(object):
         odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, rel, tags, lemmas, entities, chunks, odin_id), False, True)
         
         ann_samples = []
-        trigger_toks = search_triggers(sample_['subj_start'], sample_['subj_end'] + 1, sample_['obj_start'], sample_['obj_end'] + 1, rel, tokens)
+        trigger_toks = search_triggers(sample_['subj_start'], sample_['subj_end'] + 1, sample_['obj_start'], sample_['obj_end'] + 1, rel, tokens) if use_triggers else None
         for trigger_tok in trigger_toks:
             ann_samples.append(AnnotatedSample(
                 " ".join(tokens), " ".join(tokens), rel, sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
@@ -180,7 +180,7 @@ def filter_misparsed_patterns(pattern_dict, str_rel, d):
     return new_pattern_dict
 
 
-def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int, remove_eud_info: bool, remove_extra_info: bool):
+def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int, remove_eud_info: bool, remove_extra_info: bool, use_triggers: bool):
     c = 0
     ann_samples = defaultdict(list)
     for i, sample in enumerate(data):
@@ -193,7 +193,7 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
         if rel not in spike_relations:
             continue
         
-        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, rel, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
+        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, rel, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers)
         _ = [ann_samples[ann_sample.relation].append(ann_sample) for ann_sample in new_ann_samples]
         c += 1
     
@@ -327,11 +327,11 @@ def main_annotate(strategies, dataset):
         print("finished annotating %s/l, time:%.3f" % (strat_name, time.time() - start))
 
 
-def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos):
+def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_triggers):
     evals = dict()
     for i, (name, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info) in enumerate(strats):
         name = name + ('l' if use_lemma else '')
-        with open("pattern_dicts/pattern_dict_%s.pkl" % name, "rb") as f:
+        with open("pattern_dicts/pattern_dict_%s%s.pkl" % (name, "" if use_triggers else "_no_trig"), "rb") as f:
             print("started loading patterns for strategy %s" % name)
             pattern_dict = pickle.load(f)
             print("finished loading patterns for strategy %s" % name)
@@ -352,7 +352,7 @@ def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos):
     print(str(evals))
 
 
-def main_generate(strats):
+def main_generate(strats, use_triggers):
     print("started loading tacred train")
     with open("dataset/tacred/data/json/train.json") as f:
         train = json.load(f)
@@ -362,13 +362,13 @@ def main_generate(strats):
         print("started generating patterns for strategy %s" % name)
         start = time.time()
         pattern_dict_no_lemma, pattern_dict_with_lemma = \
-            generate_patterns(train, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
+            generate_patterns(train, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers)
         store_pattern_stats(pattern_dict_no_lemma, name)
         store_pattern_stats(pattern_dict_with_lemma, name)
         print("finished generating patterns for strategy %s/l, strategy-index: %d, time: %.3f" % (name, i, time.time() - start))
-        with open("pattern_dicts/pattern_dict_%s.pkl" % name, "wb") as f:
+        with open("pattern_dicts/pattern_dict_%s%s.pkl" % (name, "" if use_triggers else "_no_trig"), "wb") as f:
             pickle.dump(pattern_dict_no_lemma, f)
-        with open("pattern_dicts/pattern_dict_%sl.pkl" % name, "wb") as f:
+        with open("pattern_dicts/pattern_dict_%sl%s.pkl" % (name, "" if use_triggers else "_no_trig"), "wb") as f:
             pickle.dump(pattern_dict_with_lemma, f)
 
 
@@ -393,7 +393,8 @@ if __name__ == "__main__":
     arg_parser.add_argument('-s', '--sub_strats', action='append', default=None)
     arg_parser.add_argument('-i', '--sub_infos', action='append', default=None)
     arg_parser.add_argument('-l', '--use_lemma', type=int, default=1)
-    
+    arg_parser.add_argument('-t', '--use_triggers', type=int, default=1)
+
     args = arg_parser.parse_args()
     
     if args.strat_start >= 0:
@@ -405,6 +406,6 @@ if __name__ == "__main__":
     if args.action == 'annotate':
         main_annotate(strategies, args.data)
     elif args.action == 'eval':
-        main_eval(strategies, args.data, args.use_lemma, args.port, args.sub_strats, args.sub_infos)
+        main_eval(strategies, args.data, args.use_lemma, args.port, args.sub_strats, args.sub_infos, args.use_triggers)
     elif args.action == 'generate':
-        main_generate(strategies)
+        main_generate(strategies, args.use_triggers)
