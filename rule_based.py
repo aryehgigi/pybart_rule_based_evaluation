@@ -351,7 +351,14 @@ def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_t
             print("started calculating {}-set scores for strategy {}, sub{}_{}{}".format(data, name, sub_strat_idx, sub_info, trig_str))
             ff = open("logs/log_scores_{}_{}_sub{}_{}{}.json".format(data, name, sub_strat_idx, sub_info, trig_str), "w")
             cur_pattern_dict = strat_funcs[sub_strat_idx](pattern_dict, sub_info)
-            evals[(name, data, sub_strat_idx, sub_info, trig_str)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff, not tune)[0]
+            try:
+                evals[(name, data, sub_strat_idx, sub_info, trig_str)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff, not tune)[0]
+            except ConnectionError as e:
+                raise e
+            except Exception as e2:
+                print(e2)
+                ff.close()
+                continue
             if tune:
                 with open("pattern_dicts/pattern_dict_%s%s_dev_tuned.pkl" % (name, trig_str), "wb") as f:
                     pickle.dump(cur_pattern_dict, f)
