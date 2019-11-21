@@ -23,6 +23,8 @@ import spacy
 from spacy.tokens import Doc
 
 spike_relations = ["org:country_of_headquarters", "per:cause_of_death", "per:country_of_birth", "per:spouse", "org:founded", "per:children", "per:country_of_death", "per:stateorprovince_of_death", "org:founded_by", "per:cities_of_residence", "per:origin", "org:alternate_names", "org:number_of_employees_members", "per:city_of_death", "per:religion", "org:city_of_headquarters", "per:age", "per:countries_of_residence", "per:schools_attended"]
+DEV_TUNED_STRATEGY_INDEX = 0
+DEV_TUNED_STRATEGY_INFO = 1.0
 
 
 def prevent_sentence_boundary_detection(doc):
@@ -140,7 +142,7 @@ class SampleAryehAnnotator(object):
         odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, rel, tags, lemmas, entities, chunks, odin_id), False, True)
         
         ann_samples = []
-        trigger_toks = search_triggers(sample_['subj_start'], sample_['subj_end'] + 1, sample_['obj_start'], sample_['obj_end'] + 1, rel, tokens) if use_triggers else None
+        trigger_toks = search_triggers(sample_['subj_start'], sample_['subj_end'] + 1, sample_['obj_start'], sample_['obj_end'] + 1, rel, tokens) if use_triggers else [None]
         for trigger_tok in trigger_toks:
             ann_samples.append(AnnotatedSample(
                 " ".join(tokens), " ".join(tokens), rel, sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
@@ -161,7 +163,7 @@ def store_pattern_stats(pattern_dict, name):
 def get_triggers(rel):
     try:
         with open("triggers/" + rel + ".xml", "r") as f:
-            triggers = [l.strip() for l in f.readlines()]
+            triggers = [l.strip() for l in f.readlines() if l.strip() != '']
         return triggers
     except FileNotFoundError:
         return []
@@ -193,7 +195,7 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
         if rel not in spike_relations:
             continue
         
-        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, rel, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers)
+        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, rel, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers=use_triggers)
         _ = [ann_samples[ann_sample.relation].append(ann_sample) for ann_sample in new_ann_samples]
         c += 1
     
@@ -221,26 +223,24 @@ def get_link(in_port):
     return f"http://{host}:{port}"
 
 
-def eval_patterns_on_dataset(rel_to_pattern_dict, data_name, in_port, f):
+def eval_patterns_on_dataset(rel_to_pattern_dict, data_name, in_port, f, global_or_local):
+    compute_global = True if global_or_local else False
+    compute_per_pattern = False if global_or_local else True
     tot_retrieved_and_relevant = 0
     tot_relevant = 0
     tot_retrieved = 0
     stats_list = dict()
     macro_f = 0
     i = 0
-    errs = 0
+    dev_tuned = dict()
     for str_rel, patterns in rel_to_pattern_dict.items():
         if str_rel not in spike_relations:
             continue
         rel = Relation.fetch(id=str_rel)
-        try:
-            e = eval.evaluate_relation(FileBasedDataSet(data_name), spike_compiler.from_text("\n".join(patterns.keys()), rel)[0], rel, get_link(in_port), get_link(in_port + 90))
-        except ConnectionError:
-            import pdb;pdb.set_trace()
-        except Exception as e:
-            errs += 1
-            continue
-
+        e, labels = eval.evaluate_relation(FileBasedDataSet(data_name), spike_compiler.from_text("\n".join(patterns.keys()), rel)[0],
+            rel, get_link(in_port), get_link(in_port + 90), compute_global=compute_global, compute_per_pattern=compute_per_pattern)
+        dev_tuned[str_rel] = labels
+        
         stats = e.get_global_stats()
         tot_retrieved_and_relevant += stats['retrievedAndRelevant']
         tot_retrieved += stats['retrieved']
@@ -249,7 +249,10 @@ def eval_patterns_on_dataset(rel_to_pattern_dict, data_name, in_port, f):
         stats_list[str_rel] = stats
         i += 1
         print("finished rel: %s %d/%d" % (str_rel, i, len(spike_relations)))
-    print(errs)
+    
+    if compute_per_pattern:
+        for str_rel, patterns in rel_to_pattern_dict.items():
+            _ = [patterns.pop(pat) for pat in list(patterns.keys()) if pat not in dev_tuned[str_rel]]
     
     prec = (tot_retrieved_and_relevant / tot_retrieved) if tot_retrieved > 0 else 0
     recall = (tot_retrieved_and_relevant / tot_relevant) if tot_relevant > 0 else 0
@@ -328,23 +331,30 @@ def main_annotate(strategies, dataset):
 
 
 def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_triggers):
-    trig_str = "" if use_triggers else "_no_trig"
     evals = dict()
     for i, (name, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info) in enumerate(strats):
         name = name + ('l' if use_lemma else '')
-        with open("pattern_dicts/pattern_dict_%s%s.pkl" % (name, trig_str), "rb") as f:
-            print("started loading patterns for strategy %s" % name)
-            pattern_dict = pickle.load(f)
-            print("finished loading patterns for strategy %s" % name)
+        trig_str = "" if use_triggers else "_no_trig"
         
         start = time.time()
         for sub_strat_idx, sub_info in zip(sub_strategies, sub_infos):
             sub_strat_idx = int(sub_strat_idx)
             sub_info = float(sub_info)
+            use_tuned = True if (sub_strat_idx == DEV_TUNED_STRATEGY_INDEX) and (sub_info == DEV_TUNED_STRATEGY_INFO) and (data == 'test') else False
+            tune = True if (sub_strat_idx == DEV_TUNED_STRATEGY_INDEX) and (sub_info == DEV_TUNED_STRATEGY_INFO) and (data == 'dev') else False
+            
+            dev_tuned_str = "_dev_tuned" if use_tuned else ""
+            with open("pattern_dicts/pattern_dict_%s%s%s.pkl" % (name, trig_str, dev_tuned_str), "rb") as f:
+                print("started loading patterns for strategy %s" % name)
+                pattern_dict = pickle.load(f)
+                print("finished loading patterns for strategy %s" % name)
             print("started calculating {}-set scores for strategy {}, sub{}_{}{}".format(data, name, sub_strat_idx, sub_info, trig_str))
             ff = open("logs/log_scores_{}_{}_sub{}_{}{}.json".format(data, name, sub_strat_idx, sub_info, trig_str), "w")
             cur_pattern_dict = strat_funcs[sub_strat_idx](pattern_dict, sub_info)
-            evals[(name, data, sub_strat_idx, sub_info, trig_str)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff)[0]
+            evals[(name, data, sub_strat_idx, sub_info, trig_str)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff, not tune)[0]
+            if tune:
+                with open("pattern_dicts/pattern_dict_%s%s_dev_tuned.pkl" % (name, trig_str), "wb") as f:
+                    pickle.dump(cur_pattern_dict, f)
             print("finished calculating %s-set scores for strategy %s, sub%d_%f%s time: %.3f" % (data, name, sub_strat_idx, sub_info, trig_str, time.time() - start))
             print("\tscores: " + str(evals[(name, data, sub_strat_idx, sub_info, trig_str)]))
             ff.close()
