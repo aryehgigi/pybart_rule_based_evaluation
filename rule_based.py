@@ -250,6 +250,18 @@ def eval_patterns_on_dataset(rel_to_pattern_dict, data_name, in_port, f, global_
         i += 1
         print("finished rel: %s %d/%d" % (str_rel, i, len(spike_relations)))
     
+    # if labels:
+    #     recalls = []
+    #     tot_rnr = 0
+    #     for rule in sorted([v2 for k,v in dev_tuned.items() for v2 in v], reverse=True):
+    #         tot_rnr += rule
+    #         recalls.append(tot_rnr)
+    #     recalls = np.array(recalls) / tot_relevant
+    #
+    #     with open("recalls_by_port%d" % in_port, "w") as f:
+    #         json.dump(recalls.tolist(), f)
+    #     print("outputed successfully")
+    #     exit()
     if compute_per_pattern:
         for str_rel, patterns in rel_to_pattern_dict.items():
             _ = [patterns.pop(pat) for pat in list(patterns.keys()) if pat not in dev_tuned[str_rel]]
