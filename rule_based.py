@@ -117,7 +117,7 @@ class SampleAryehAnnotator(object):
         _ = parser(doc)
         conllu_basic_out_formatted = cw.parse_spacy_doc(doc)
         
-        sent, _ = converter.convert([conllu_basic_out_formatted], enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info)
+        sent, _ = converter.convert([conllu_basic_out_formatted], enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, False)
         
         assert len(sent) == 1
         sent = sent[0]
