@@ -371,7 +371,7 @@ def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_t
     print(str(evals))
 
 
-def main_generate(strats, use_triggers):
+def main_generate(strats, use_triggers, ablation=""):
     print("started loading tacred train")
     with open("dataset/tacred/data/json/train.json") as f:
         train = json.load(f)
@@ -381,13 +381,11 @@ def main_generate(strats, use_triggers):
         print("started generating patterns for strategy %s" % name)
         start = time.time()
         pattern_dict_no_lemma, pattern_dict_with_lemma = \
-            generate_patterns(train, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers)
-        store_pattern_stats(pattern_dict_no_lemma, name)
-        store_pattern_stats(pattern_dict_with_lemma, name)
+            generate_patterns(train, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers, ablation=ablation)
         print("finished generating patterns for strategy %s/l, strategy-index: %d, time: %.3f" % (name, i, time.time() - start))
-        with open("pattern_dicts/pattern_dict_%s%s.pkl" % (name, "" if use_triggers else "_no_trig"), "wb") as f:
+        with open("pattern_dicts/pattern_dict_%s%s%s.pkl" % (name, "" if use_triggers else "_no_trig", "" if ablation == "" else "_" + ablation), "wb") as f:
             pickle.dump(pattern_dict_no_lemma, f)
-        with open("pattern_dicts/pattern_dict_%sl%s.pkl" % (name, "" if use_triggers else "_no_trig"), "wb") as f:
+        with open("pattern_dicts/pattern_dict_%sl%s%s.pkl" % (name, "" if use_triggers else "_no_trig", "" if ablation == "" else "_" + ablation), "wb") as f:
             pickle.dump(pattern_dict_with_lemma, f)
 
 
