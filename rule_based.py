@@ -395,10 +395,10 @@ if __name__ == "__main__":
         ("e", True, True, False, 1, False, False),  # eUD
         ("e2", True, True, False, 1, True, True),  # eUD + no-extra-info
         ("a", True, True, True, 1, True, True),  # Aryeh enhancement + eUD
-        ("ar", True, True, True, 2, True, True),  # Aryeh enhancement + eUD + 2 convs
         ("a2", False, False, True, 1, True, True),  # Aryeh enhancement + no eUD
-        ("a2r", False, False, True, 2, True, True),  # Aryeh enhancement + no eUD + 2 convs
         ("a3", True, True, True, 2, False, True),
+        ("ar", True, True, True, 2, True, True),  # Aryeh enhancement + eUD + 2 convs
+        ("a2r", False, False, True, 2, True, True),  # Aryeh enhancement + no eUD + 2 convs
         ("a3r", True, True, True, 2, False, True)]
 
     arg_parser = argparse.ArgumentParser()
