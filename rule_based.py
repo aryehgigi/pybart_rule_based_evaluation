@@ -333,7 +333,7 @@ def main_annotate(strategies, dataset, ablation=""):
         print("finished annotating %s/l, time:%.3f" % (strat_name, time.time() - start))
 
 
-def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_triggers):
+def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_triggers, ablation=""):
     evals = dict()
     for i, (name, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info) in enumerate(strats):
         name = name + ('l' if use_lemma else '')
@@ -347,15 +347,15 @@ def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_t
             tune = True if (sub_strat_idx == DEV_TUNED_STRATEGY_INDEX) and (sub_info == DEV_TUNED_STRATEGY_INFO) and (data == 'dev') else False
             
             dev_tuned_str = "_dev_tuned" if use_tuned else ""
-            with open("pattern_dicts/pattern_dict_%s%s%s.pkl" % (name, trig_str, dev_tuned_str), "rb") as f:
+            with open("pattern_dicts/pattern_dict_%s%s%s%s.pkl" % (name, ablation if ablation == "" else "_" + ablation, trig_str, dev_tuned_str), "rb") as f:
                 print("started loading patterns for strategy %s" % name)
                 pattern_dict = pickle.load(f)
                 print("finished loading patterns for strategy %s" % name)
             print("started calculating {}-set scores for strategy {}, sub{}_{}{}".format(data, name, sub_strat_idx, sub_info, trig_str))
-            ff = open("logs/log_scores_{}_{}_sub{}_{}{}.json".format(data, name, sub_strat_idx, sub_info, trig_str), "w")
+            ff = open("logs/log_scores_{}_{}{}_sub{}{}{}.json".format(data, name, ablation if ablation == "" else "_" + ablation, sub_strat_idx, sub_info, trig_str), "w")
             cur_pattern_dict = strat_funcs[sub_strat_idx](pattern_dict, sub_info)
             try:
-                evals[(name, data, sub_strat_idx, sub_info, trig_str)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}".format(data, name), in_port, ff, not tune)[0]
+                evals[(name, data, sub_strat_idx, sub_info, trig_str)] = eval_patterns_on_dataset(cur_pattern_dict, "tacred-{}-labeled-aryeh-{}{}".format(data, name, ablation if ablation == "" else "-" + ablation), in_port, ff, not tune)[0]
             except ConnectionError as e:
                 raise e
             except Exception as e2:
@@ -363,7 +363,7 @@ def main_eval(strats, data, use_lemma, in_port, sub_strategies, sub_infos, use_t
                 ff.close()
                 continue
             if tune:
-                with open("pattern_dicts/pattern_dict_%s%s_dev_tuned.pkl" % (name, trig_str), "wb") as f:
+                with open("pattern_dicts/pattern_dict_%s%s%s_dev_tuned.pkl" % (name, ablation if ablation == "" else "_" + ablation, trig_str), "wb") as f:
                     pickle.dump(cur_pattern_dict, f)
             print("finished calculating %s-set scores for strategy %s, sub%d_%f%s time: %.3f" % (data, name, sub_strat_idx, sub_info, trig_str, time.time() - start))
             print("\tscores: " + str(evals[(name, data, sub_strat_idx, sub_info, trig_str)]))
