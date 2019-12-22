@@ -18,7 +18,7 @@ from spike.pattern_generation.compilation.odinson_compiler import compile_to_odi
 from spike.datamodel.dataset import FileBasedDataSet
 from spike.evaluation import eval
 
-from ud2ude_aryehgigi import converter, conllu_wrapper as cw
+from ud2ude import converter, conllu_wrapper as cw, api as uda_api
 import spacy
 from spacy.tokens import Doc
 
@@ -110,14 +110,15 @@ def search_triggers(subj_start, subj_end, obj_start, obj_end, rel, tokens):
 class SampleAryehAnnotator(object):
     @staticmethod
     def annotate_sample(sample_: dict, rel: str, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int,
-                        remove_eud_info: bool, remove_extra_info: bool, odin_id: int = -1, use_triggers: bool = True) -> Tuple[List[AnnotatedSample], dict]:
+                        remove_eud_info: bool, remove_extra_info: bool, odin_id: int = -1, use_triggers: bool = True, ablation: str = "") -> Tuple[List[AnnotatedSample], dict]:
         doc = Doc(nlp.vocab, words=sample_['token'])
         _ = tagger(doc)
         _ = sbd_preventer(doc)
         _ = parser(doc)
         conllu_basic_out_formatted = cw.parse_spacy_doc(doc)
         
-        sent, _ = converter.convert([conllu_basic_out_formatted], enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, False)
+        sent, _ = converter.convert([conllu_basic_out_formatted], enhance_ud, enhanced_plus_plus, enhanced_extra, convs,
+                                    remove_eud_info, remove_extra_info, False, converter.ConvsCanceler([ablation]) if ablation else converter.ConvsCanceler())
         
         assert len(sent) == 1
         sent = sent[0]
