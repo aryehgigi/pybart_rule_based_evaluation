@@ -175,8 +175,7 @@ def filter_misparsed_patterns(pattern_dict, str_rel, d):
     return new_pattern_dict
 
 
-def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int, remove_eud_info: bool, remove_extra_info: bool, use_triggers: bool):
-    c = 0
+def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, enhanced_extra: bool, convs: int, remove_eud_info: bool, remove_extra_info: bool, use_triggers: bool, ablation: str):
     ann_samples = defaultdict(list)
     for i, sample in enumerate(data):
         if (i + 1) % 6800 == 0:
@@ -188,9 +187,8 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
         if rel not in spike_relations:
             continue
         
-        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, rel, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers=use_triggers)
+        new_ann_samples, _ = SampleAryehAnnotator.annotate_sample(sample, rel, enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, use_triggers=use_triggers, ablation=ablation)
         _ = [ann_samples[ann_sample.relation].append(ann_sample) for ann_sample in new_ann_samples]
-        c += 1
     
     pattern_dict_no_lemma = dict()
     pattern_dict_with_lemma = dict()
@@ -201,7 +199,7 @@ def generate_patterns(data: List, enhance_ud: bool, enhanced_plus_plus: bool, en
             triggers = get_triggers(rel)
             pattern_generator_with_trigger = PatternGenerator([TriggerVarNodeSelector(triggers)], LabelEdgeSelector(), [])
             pattern_generator_no_trigger = PatternGenerator([], LabelEdgeSelector(), [node_selector()])
-            pattern_dict_pre_filter, d = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_with_trigger, pattern_generator_no_trigger)
+            pattern_dict_pre_filter, d = GenerationFromAnnotatedSamples.gen_pattern_dict(ann_samples_per_rel, pattern_generator_with_trigger, pattern_generator_no_trigger, True)
             pattern_dict[rel] = filter_misparsed_patterns(pattern_dict_pre_filter, rel, errs)
             total_d += sum(d.values())
         print("%d/%d patterns can’t be created for %s" % (total_d, sum([len(a) for a in ann_samples.values()]), str(node_selector)))
