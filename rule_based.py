@@ -130,34 +130,26 @@ class SampleAryehAnnotator(object):
         chunks = ["O"] * len(tokens)
         
         g = nx.Graph()
-        dg = nx.DiGraph()
+        mdg = nx.MultiDiGraph()
         for node in sent.values():
             for parent, label in node.get_new_relations():
                 if parent.get_conllu_field("id") == 0:
                     continue
                 
                 g.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=label)
-                dg.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=label)
-        
-        odin = cw.conllu_to_odin([sent], get_odin_json(tokens, sample_, rel, tags, lemmas, entities, chunks, odin_id), False, True)
+                mdg.add_edge(parent.get_conllu_field("id") - 1, node.get_conllu_field("id") - 1, label=label)
+
+        odin_json = get_odin_json(tokens, sample_, rel, tags, lemmas, entities, chunks, odin_id)
+        odin_json['documents'][''] = cw.conllu_to_odin([sent], odin_json['documents'][''], False, True)
         
         ann_samples = []
         trigger_toks = search_triggers(sample_['subj_start'], sample_['subj_end'] + 1, sample_['obj_start'], sample_['obj_end'] + 1, rel, tokens) if use_triggers else [None]
         for trigger_tok in trigger_toks:
             ann_samples.append(AnnotatedSample(
                 " ".join(tokens), " ".join(tokens), rel, sample_['subj_type'].title(), sample_['obj_type'].title(), tokens, tags, entities, chunks, lemmas,
-                (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), trigger_tok, g, dg))
+                (sample_['subj_start'], sample_['subj_end'] + 1), (sample_['obj_start'], sample_['obj_end'] + 1), trigger_tok, g, mdg))
         
-        return ann_samples, odin
-
-
-def store_pattern_stats(pattern_dict, name):
-    with open("logs/pattern_stats_%s.json" % name, "w") as f:
-        lens = []
-        for x in range(1, 9):
-            pattern_dict_x = get_percentage_strategy(pattern_dict, x * 0.1)
-            lens.append(len(set(v3 for k,v in pattern_dict_x.items() for k2,v2 in v.items() for v3 in v2)))
-        json.dump(lens, f)
+        return ann_samples, odin_json
 
 
 def get_triggers(rel):
