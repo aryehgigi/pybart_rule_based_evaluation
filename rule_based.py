@@ -25,6 +25,7 @@ from spacy.tokens import Doc
 spike_relations = ["org:country_of_headquarters", "per:cause_of_death", "per:country_of_birth", "per:spouse", "org:founded", "per:children", "per:country_of_death", "per:stateorprovince_of_death", "org:founded_by", "per:cities_of_residence", "per:origin", "org:alternate_names", "org:number_of_employees_members", "per:city_of_death", "per:religion", "org:city_of_headquarters", "per:age", "per:countries_of_residence", "per:schools_attended"]
 DEV_TUNED_STRATEGY_INDEX = 0
 DEV_TUNED_STRATEGY_INFO = 1.0
+# BATCH_SIZE = 3
 
 
 def prevent_sentence_boundary_detection(doc):
@@ -411,6 +412,7 @@ if __name__ == "__main__":
     arg_parser.add_argument('-i', '--sub_infos', action='append', default=None)
     arg_parser.add_argument('-l', '--use_lemma', type=int, default=1)
     arg_parser.add_argument('-t', '--use_triggers', type=int, default=1)
+    # arg_parser.add_argument('-b', '--batch', type=int, default=0)
 
     args = arg_parser.parse_args()
     
@@ -426,3 +428,15 @@ if __name__ == "__main__":
         main_eval(strategies, args.data, args.use_lemma, args.port, args.sub_strats, args.sub_infos, args.use_triggers)
     elif args.action == 'generate':
         main_generate(strategies, args.use_triggers)
+    # elif args.action == 'ablation_a':
+    #     from multiprocessing import Pool
+    #     with Pool(BATCH_SIZE) as pool:
+    #         pool.starmap(main_annotate, [(strategies, 'dev', name) for name in uda_api.get_conversion_names()])
+    #     with Pool(BATCH_SIZE) as pool:
+    #         pool.starmap(main_annotate, [(strategies, 'test', name) for name in uda_api.get_conversion_names()])
+    #     with Pool(BATCH_SIZE) as pool:
+    #         pool.starmap(main_generate, [(strategies, args.use_triggers, name) for name in uda_api.get_conversion_names()])
+    # elif args.action == 'ablation_e':
+    #     from multiprocessing import Pool
+    #     with Pool(BATCH_SIZE) as pool:
+    #         pool.starmap(main_eval, [([strategies[3]], args.data, 1, 9000 + i + (args.batch * BATCH_SIZE), [0], [1], 1, name) for i, name in enumerate(ordered_conv_names[args.batch * BATCH_SIZE: (args.batch * BATCH_SIZE) + BATCH_SIZE])])
