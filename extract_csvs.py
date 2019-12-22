@@ -57,7 +57,7 @@ def main(names):
     
     print("general")
     for score in general.values():
-        print("\t{: <43}{: >9.4f}{: >9.4f}{: >9.4f}{: >9.4f}{: >9.4f}{: >9.4f}{: >9.4f}{: >9.4f}".format(*score))
+        print("\t{: <70}{: >11.6f}{: >11.6f}{: >11.6f}{: >11.6f}{: >11.6f}{: >11.6f}{: >11.6f}{: >11.6f}".format(*score))
 
 
 if __name__ == "__main__":
