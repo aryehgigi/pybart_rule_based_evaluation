@@ -306,7 +306,7 @@ get_self_strategy = lambda x, y: x
 strat_funcs = [get_self_strategy, get_threshold_strategy, get_percentage_strategy, get_no_immediate_path_strategy]
 
 
-def main_annotate(strategies, dataset):
+def main_annotate(strategies, dataset, ablation=""):
     print("started loading tacred %s" % dataset)
     with open("dataset/tacred/data/json/{}.json".format(dataset)) as f:
         data = json.load(f)
@@ -316,8 +316,8 @@ def main_annotate(strategies, dataset):
         start = time.time()
         print("Started annotating %s/l" % strat_name)
         for j, sample in enumerate(data):
-            filename = "resources/datasets/tacred-{}-labeled-aryeh-{}/ann/sent_{:0>5}.json".format(dataset, strat_name, j)
-            filename_l = "resources/datasets/tacred-{}-labeled-aryeh-{}l/ann/sent_{:0>5}.json".format(dataset, strat_name, j)
+            filename = "resources/datasets/tacred-{}-labeled-aryeh-{}{}/ann/sent_{:0>5}.json".format(dataset, strat_name, ("-" + ablation) if ablation else "", j)
+            filename_l = "resources/datasets/tacred-{}-labeled-aryeh-{}l{}/ann/sent_{:0>5}.json".format(dataset, strat_name, ("-" + ablation) if ablation else "", j)
             try:
                 os.makedirs(os.path.dirname(filename))
                 os.makedirs(os.path.dirname(filename_l))
@@ -325,7 +325,7 @@ def main_annotate(strategies, dataset):
                 if exc.errno != errno.EEXIST:
                     raise
             _, odin_json = SampleAryehAnnotator.annotate_sample(
-                sample, sample['relation'].replace('/', '_'), enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, odin_id=j)
+                sample, sample['relation'].replace('/', '_'), enhance_ud, enhanced_plus_plus, enhanced_extra, convs, remove_eud_info, remove_extra_info, odin_id=j, ablation=ablation)
             with open(filename, 'w') as f:
                 json.dump(odin_json['documents'][''], f)
             with open(filename_l, 'w') as f:
